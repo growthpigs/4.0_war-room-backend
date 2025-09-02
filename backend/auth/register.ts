@@ -11,17 +11,25 @@ export const register = api<RegisterRequest, AuthResponse>(
     // Create user (validation happens in authService.createUser)
     const user = await authService.createUser(email, password, name);
 
+    // Extract user data without extra fields
+    const userData = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role
+    };
+
     // Generate tokens
-    const accessToken = authService.generateAccessToken(user);
+    const accessToken = authService.generateAccessToken(userData);
     const refreshToken = authService.generateRefreshToken();
 
     // Store refresh token
-    await authService.storeRefreshToken(user.id, refreshToken);
+    await authService.storeRefreshToken(userData.id, refreshToken);
 
     return {
       token: accessToken,
       refreshToken,
-      user
+      user: userData
     };
   }
 );

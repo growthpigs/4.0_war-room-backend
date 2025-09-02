@@ -1,7 +1,8 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { warRoomDB } from "../core/db";
-import { jwtSecret } from "../core/config";
+import { jwtSecret, jwtRefreshSecret } from "../core/config";
 import { User, UserWithPassword, RefreshTokenRecord } from "./types";
 import { APIError } from "encore.dev/api";
 
@@ -22,7 +23,7 @@ export class AuthService {
 
   constructor() {
     this.jwtSecret = jwtSecret();
-    this.jwtRefreshSecret = `${jwtSecret()}_refresh`; // Using same secret with suffix for refresh
+    this.jwtRefreshSecret = jwtRefreshSecret();
   }
 
   async hashPassword(password: string): Promise<string> {
@@ -31,6 +32,23 @@ export class AuthService {
 
   async verifyPassword(password: string, hash: string): Promise<boolean> {
     return await bcrypt.compare(password, hash);
+  }
+
+  validatePasswordPolicy(password: string): void {
+    if (password.length < 8) {
+      throw APIError.invalidArgument("Password must be at least 8 characters long");
+    }
+
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasLowercase = /[a-z]/.test(password);
+    const hasNumber = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+    if (!hasUppercase || !hasLowercase || !hasNumber || !hasSpecialChar) {
+      throw APIError.invalidArgument(
+        "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character"
+      );
+    }
   }
 
   generateAccessToken(user: User): string {
@@ -48,10 +66,14 @@ export class AuthService {
 
   generateRefreshToken(): string {
     return jwt.sign(
-      { type: 'refresh', timestamp: Date.now() },
+      { type: 'refresh', timestamp: Date.now(), random: crypto.randomBytes(16).toString('hex') },
       this.jwtRefreshSecret,
       { expiresIn: this.REFRESH_TOKEN_EXPIRY }
     );
+  }
+
+  hashRefreshToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
   }
 
   verifyAccessToken(token: string): JWTPayload {
@@ -106,71 +128,76 @@ export class AuthService {
   }
 
   async createUser(email: string, password: string, name: string): Promise<User> {
-    // Check if user already exists
-    const existingUser = await this.findUserByEmail(email);
-    if (existingUser) {
-      throw APIError.alreadyExists("User with this email already exists");
-    }
-
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       throw APIError.invalidArgument("Invalid email format");
     }
 
-    // Validate password strength
-    if (password.length < 8) {
-      throw APIError.invalidArgument("Password must be at least 8 characters long");
-    }
+    // Validate password policy
+    this.validatePasswordPolicy(password);
 
     const passwordHash = await this.hashPassword(password);
 
-    const user = await warRoomDB.queryRow<User>`
-      INSERT INTO users (email, password_hash, name, role)
-      VALUES (${email}, ${passwordHash}, ${name}, 'user')
-      RETURNING 
-        id,
-        email,
-        name,
-        role,
-        created_at as "createdAt"
-    `;
+    try {
+      const user = await warRoomDB.queryRow<User>`
+        INSERT INTO users (email, password_hash, name, role)
+        VALUES (${email}, ${passwordHash}, ${name}, 'user')
+        RETURNING 
+          id,
+          email,
+          name,
+          role,
+          created_at as "createdAt"
+      `;
 
-    if (!user) {
+      if (!user) {
+        throw APIError.internal("Failed to create user");
+      }
+
+      return user;
+    } catch (error: any) {
+      // Handle unique constraint violation for email
+      if (error.code === '23505' && error.constraint === 'users_email_key') {
+        throw APIError.invalidArgument("Email already in use");
+      }
       throw APIError.internal("Failed to create user");
     }
-
-    return user;
   }
 
   async storeRefreshToken(userId: number, token: string): Promise<void> {
     const expiresAt = new Date(Date.now() + this.REFRESH_TOKEN_EXPIRY * 1000);
+    const tokenHash = this.hashRefreshToken(token);
     
     await warRoomDB.exec`
-      INSERT INTO refresh_tokens (user_id, token, expires_at)
-      VALUES (${userId}, ${token}, ${expiresAt.toISOString()})
+      INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+      VALUES (${userId}, ${tokenHash}, ${expiresAt.toISOString()})
     `;
   }
 
   async validateRefreshToken(token: string): Promise<RefreshTokenRecord | null> {
+    const tokenHash = this.hashRefreshToken(token);
+    
     const record = await warRoomDB.queryRow<RefreshTokenRecord>`
       SELECT 
         id,
         user_id as "userId",
-        token,
+        token_hash as "tokenHash",
         expires_at as "expiresAt",
         created_at as "createdAt"
       FROM refresh_tokens 
-      WHERE token = ${token} 
+      WHERE token_hash = ${tokenHash} 
         AND expires_at > NOW()
     `;
     return record;
   }
 
   async revokeRefreshToken(token: string): Promise<void> {
+    const tokenHash = this.hashRefreshToken(token);
+    
     await warRoomDB.exec`
       DELETE FROM refresh_tokens 
-      WHERE token = ${token}
+      WHERE token_hash = ${tokenHash}
     `;
   }
 

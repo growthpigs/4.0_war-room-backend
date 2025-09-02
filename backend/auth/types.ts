@@ -24,7 +24,12 @@ export interface RegisterRequest {
 export interface AuthResponse {
   token: string;
   refreshToken: string;
-  user: User;
+  user: {
+    id: number;
+    email: string;
+    role: string;
+    name: string;
+  };
 }
 
 export interface RefreshRequest {
@@ -39,7 +44,7 @@ export interface LogoutResponse {
 export interface RefreshTokenRecord {
   id: number;
   userId: number;
-  token: string;
+  tokenHash: string;
   expiresAt: string;
   createdAt: string;
 }

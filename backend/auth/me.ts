@@ -1,13 +1,22 @@
 import { api, Header } from "encore.dev/api";
 import { withAuth } from "./middleware";
-import { User } from "./types";
 
 interface MeRequest {
   authorization?: Header<"Authorization">;
 }
 
+interface MeResponse {
+  user: {
+    id: number;
+    email: string;
+    role: string;
+    name: string;
+    created_at: string;
+  };
+}
+
 // Retrieves the current authenticated user's profile.
-export const me = api<MeRequest, { user: User }>(
+export const me = api<MeRequest, MeResponse>(
   { expose: true, method: "GET", path: "/api/v1/auth/me" },
   withAuth(async (req, ctx) => {
     // Get full user data from database
@@ -18,6 +27,14 @@ export const me = api<MeRequest, { user: User }>(
       throw new (await import("encore.dev/api")).APIError.notFound("User not found");
     }
 
-    return { user };
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+        created_at: user.createdAt
+      }
+    };
   })
 );

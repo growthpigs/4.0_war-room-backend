@@ -25,13 +25,12 @@ export const login = api<LoginRequest, AuthResponse>(
       throw APIError.unauthenticated("Invalid email or password");
     }
 
-    // Extract user data without password
+    // Extract user data without password and extra fields
     const user = {
       id: userWithPassword.id,
       email: userWithPassword.email,
       name: userWithPassword.name,
-      role: userWithPassword.role,
-      createdAt: userWithPassword.createdAt
+      role: userWithPassword.role
     };
 
     // Generate tokens
