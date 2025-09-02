@@ -1,3 +1,5 @@
+import { Header } from "encore.dev/api";
+
 export interface User {
   id: number;
   email: string;
@@ -13,6 +15,7 @@ export interface UserWithPassword extends User {
 export interface LoginRequest {
   email: string;
   password: string;
+  xForwardedFor?: Header<"X-Forwarded-For">;
 }
 
 export interface RegisterRequest {
@@ -34,6 +37,7 @@ export interface AuthResponse {
 
 export interface RefreshRequest {
   refreshToken: string;
+  xForwardedFor?: Header<"X-Forwarded-For">;
 }
 
 export interface LogoutResponse {

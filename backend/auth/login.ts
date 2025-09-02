@@ -1,11 +1,15 @@
 import { api, APIError } from "encore.dev/api";
 import { authService } from "./service";
 import { LoginRequest, AuthResponse } from "./types";
+import { rateLimiter } from "./ratelimit";
 
 // Authenticates user credentials and returns JWT tokens.
 export const login = api<LoginRequest, AuthResponse>(
   { expose: true, method: "POST", path: "/api/v1/auth/login" },
   async (req) => {
+    const ip = req.xForwardedFor?.split(',')[0].trim() || '127.0.0.1';
+    rateLimiter(ip, { attempts: 5, windowMs: 60 * 1000 });
+
     const { email, password } = req;
 
     // Validate input

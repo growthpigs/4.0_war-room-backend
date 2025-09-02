@@ -1,6 +1,7 @@
 import { api, APIError } from "encore.dev/api";
 import { authService } from "./service";
 import { RefreshRequest } from "./types";
+import { rateLimiter } from "./ratelimit";
 
 interface RefreshResponse {
   token: string;
@@ -11,6 +12,9 @@ interface RefreshResponse {
 export const refresh = api<RefreshRequest, RefreshResponse>(
   { expose: true, method: "POST", path: "/api/v1/auth/refresh" },
   async (req) => {
+    const ip = req.xForwardedFor?.split(',')[0].trim() || '127.0.0.1';
+    rateLimiter(ip, { attempts: 10, windowMs: 60 * 1000 });
+
     const { refreshToken } = req;
 
     if (!refreshToken) {
